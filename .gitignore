@@ -2,3 +2,6 @@ node_modules/
 .env
 
 /src/generated/prisma
+# User-uploaded files
+public/uploads/*
+!public/uploads/.gitkeep

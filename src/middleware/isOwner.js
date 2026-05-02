@@ -2,7 +2,7 @@ const prisma = require("../lib/prisma");
 
 async function isOwner (req, res, next) {
 
-    const id = Number(req.params.postId);
+    const id = Number(req.params.questionid);
     const question = await prisma.question.findUnique({
       where: { id },
       include: { keywords: true },
@@ -12,7 +12,7 @@ async function isOwner (req, res, next) {
       return res.status(404).json({ message: "No Such Question Exist" });
     }
 
-    if (post.userId !== req.user.userId) {
+    if (question.userId !== req.user.userId) {
       return res.status(403).json({ error: "You are not authorize to modify this question" });
     }
 
