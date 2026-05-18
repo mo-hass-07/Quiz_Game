@@ -5,6 +5,15 @@ const authenticate = require("../middleware/auth");
 const isOwner = require("../middleware/isOwner");
 const multer = require("multer");
 const path = require('path');
+const { ValidationError, ConflictError, UnauthorizedError, NotFoundError } = require("../lib/errors");
+const { z } = require("zod");
+
+const QuestionInput = z.object({
+  question: z.string().min(1),
+  answer: z.string().min(1),
+  keywords: z.union([z.string(), z.array(z.string())]).optional(),
+});
+
 
 function formatQuestion(question) {
   return {
@@ -84,7 +93,7 @@ router.get ("/:questionid", async(req, res) => {
     });
 
     if (!question) {
-        return res.status(404).json({ message: 'Question not found' });
+        throw new NotFoundError ("Question Not Found!")
     }
 
     res.json(formatQuestion(question));
@@ -94,13 +103,7 @@ router.get ("/:questionid", async(req, res) => {
 // Create a new post
 router.post("/", upload.single("image"), async (req, res) => {
 
-  const { question, answer, keywords } = req.body;
-
-  if (!question || !answer) {
-    return res.status(400).json({
-      message: "question and answer are required"
-    });
-  }
+  const { question, answer, keywords } = QuestionInput.parse(req.body);
 
   const keywordsArray = Array.isArray(keywords) ? keywords : [];
   const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
@@ -128,15 +131,13 @@ router.put ("/:questionid", isOwner, upload.single("image"), async(req, res) => 
     const questionid = Number(req.params.questionid);
     const find_question = await prisma.question.findUnique({ where: { id: questionid } });
     if (!find_question) {
-        return res.status(404).json({ message: 'Question not found' });
+        throw new NotFoundError ("Question Not Found!")
     }
 
-    const { question, answer, keywords } = req.body;
+    const { question, answer, keywords } = QuestionInput.parse(req.body);
 
     if (!question || !answer) {
-        return res.status(400).json({
-        message: "question and answer are required"
-    });}
+      throw new ValidationError ("Question and Answer are required!");}
 
     const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
     const keywordsArray = Array.isArray(keywords) ? keywords : [];
@@ -165,7 +166,7 @@ router.delete ("/:questionid", isOwner ,async(req, res) => {
     const questionid = Number(req.params.questionid);
     const find_question = await prisma.question.findUnique({ where: { id: questionid }, include: { keywords: true },});
     if (!find_question) {
-        return res.status(404).json({ message: 'Question not found' });
+        throw new NotFoundError ("Question Not Found!")
     }
     
     await prisma.question.delete({ where: { id: questionid } });
@@ -182,7 +183,7 @@ router.post("/:questionid/attempt", async (req, res) => {
   });
 
   if (!question) {
-    return res.status(404).json({ message: "Question not found" });
+    throw new NotFoundError ("Question Not Found!")
   }
 
   const isCorrect =
@@ -224,7 +225,7 @@ router.delete("/:questionid/attempt", async (req, res) => {
 
     const find_question = await prisma.question.findUnique({ where: { id: questionId } });
     if (!find_question) {
-        return res.status(404).json({ message: 'Question not found' });
+        throw new NotFoundError ("Question Not Found!")
     }
 
     const attempt = await prisma.attempt.deleteMany({
@@ -239,6 +240,8 @@ router.delete("/:questionid/attempt", async (req, res) => {
         attemptCount,
 
     });
+
+    
 });
 
 module.exports = router;

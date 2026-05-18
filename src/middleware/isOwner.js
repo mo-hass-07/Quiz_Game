@@ -1,3 +1,4 @@
+const { ForbiddenError, NotFoundError } = require("../lib/errors");
 const prisma = require("../lib/prisma");
 
 async function isOwner (req, res, next) {
@@ -9,11 +10,11 @@ async function isOwner (req, res, next) {
     });
 
     if (!question) {
-      return res.status(404).json({ message: "No Such Question Exist" });
+      throw new NotFoundError ("No Such Question Exist");
     }
 
     if (question.userId !== req.user.userId) {
-      return res.status(403).json({ error: "You are not authorize to modify this question" });
+      throw new ForbiddenError("You are not authorize to modify this question" );
     }
 
     // Attach the record to the request so the route handler can reuse it
