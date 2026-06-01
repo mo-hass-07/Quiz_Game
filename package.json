@@ -11,10 +11,9 @@
     "db:studio": "npx prisma studio",
     "db:reset": "npx prisma migrate reset",
     "test": "vitest run",
-  "test:watch": "vitest",
-  "test:setup": "DATABASE_URL=mysql://root:1234566@localhost:3306/quiz_game_test npx prisma migrate deploy",
-  "test:coverage": "vitest run --coverage"
-
+    "test:watch": "vitest",
+    "test:setup": "DATABASE_URL=mysql://root:1234566@localhost:3306/quiz_game_test npx prisma migrate deploy",
+    "test:coverage": "vitest run --coverage"
   },
   "prisma": {
     "seed": "node prisma/seed.js"
@@ -26,9 +25,12 @@
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "bcrypt": "^6.0.0",
+    "cloudinary": "^1.41.3",
+    "csv-parser": "^3.2.1",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "multer": "^2.1.1",
+    "multer-storage-cloudinary": "^4.0.0",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
     "pino-pretty": "^13.1.3",

@@ -7,11 +7,14 @@ const multer = require("multer");
 const path = require('path');
 const { ValidationError, ConflictError, UnauthorizedError, NotFoundError } = require("../lib/errors");
 const { z } = require("zod");
+const csv = require("csv-parser");
+const fs = require("fs");
 
 const QuestionInput = z.object({
   question: z.string().min(1),
   answer: z.string().min(1),
   keywords: z.union([z.string(), z.array(z.string())]).optional(),
+  difficulty: z.enum(["EASY", "MEDIUM", "HARD"]).default("EASY"),
 });
 
 
@@ -45,15 +48,26 @@ const upload = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
+const csvUpload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === "text/csv") cb(null, true);
+    else cb(new Error("Only CSV allowed"));
+  },
+});
+
 // Apply authentication to ALL routes in this router
 router.use(authenticate);
 
 // GET /questions
 // List all questions
 router.get("/", async(req, res) => {
-    const { keyword } = req.query;
+    const { keyword,difficulty } = req.query;
 
-    const where = keyword ? { keywords: { some: { name: keyword } } }: {};
+    const where = {
+      ...(keyword ? { keywords: { some: { name: keyword } } } : {}),
+      ...(difficulty ? { difficulty } : {})
+    };
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.max(1, Math.min(100, parseInt(req.query.limit) || 5));
 
@@ -83,6 +97,83 @@ router.get("/", async(req, res) => {
     totalPages: Math.ceil(total / limit),});
 });
 
+// to generate random quiz questions
+router.get("/randomquiz", async (req, res) => {
+
+  const questions = await prisma.question.findMany({
+    include: {
+      keywords: true,
+      user: true,
+      attempts: {
+        where: { userId: req.user.userId },
+        take: 1,
+      },
+      _count: {
+        select: { attempts: true },
+      },
+    },
+  });
+
+  const shuffled = questions.sort(() => Math.random() - 0.5);
+  const random10 = shuffled.slice(0, 10);
+
+  res.json(random10.map(formatQuestion));
+});
+
+// for batch upload questions from a csv
+router.post("/batchupload", csvUpload.single("file"), async (req, res) => {
+
+  if (!req.file) {
+    return res.status(400).json({
+      error: "CSV file is required",
+    });
+  }
+
+  const questions = [];
+  fs.createReadStream(req.file.path)
+    .pipe(csv())
+    .on("data", (row) => {
+      questions.push(row);
+    })
+    .on("end", async () => {
+      try {
+        for (const row of questions) {
+          const keywordsArray = row.keywords
+            ? row.keywords.split("|").map((k) => k.trim())
+            : [];
+
+          await prisma.question.create({
+            data: {
+              question: row.question,
+              answer: row.answer,
+              difficulty: row.difficulty,
+              userId: req.user.userId,
+              keywords: {
+                connectOrCreate: keywordsArray.map((kw) => ({
+                  where: { name: kw },
+                  create: { name: kw },
+                })),
+              },
+            },
+          });
+        }
+
+        fs.unlinkSync(req.file.path);
+
+        res.status(201).json({
+          message: `${questions.length} Questions uploaded successfully`,
+        });
+      } catch (error) {
+        console.error(error);
+
+        res.status(500).json({
+          error: "Failed to upload questions",
+        });
+      }
+    });
+});
+
+// get a question with ID
 router.get ("/:questionid", async(req, res) => {
 
     const questionid = Number(req.params.questionid);
@@ -93,17 +184,16 @@ router.get ("/:questionid", async(req, res) => {
     });
 
     if (!question) {
-        throw new NotFoundError ("Question Not Found!")
+      throw new NotFoundError ("Question Not Found!")
     }
 
     res.json(formatQuestion(question));
 });
 
-// POST /questions
-// Create a new post
+// Create a new question
 router.post("/", upload.single("image"), async (req, res) => {
 
-  const { question, answer, keywords } = QuestionInput.parse(req.body);
+  const { question, answer, keywords, difficulty  } = QuestionInput.parse(req.body);
 
   const keywordsArray = Array.isArray(keywords) ? keywords : [];
   const imageUrl = req.file ? `/uploads/${req.file.filename}` : null;
@@ -113,6 +203,7 @@ router.post("/", upload.single("image"), async (req, res) => {
       question, answer,
       userId: req.user.userId,
       imageUrl,
+      difficulty,
       keywords: {
         connectOrCreate: keywordsArray.map((kw) => ({
           where: { name: kw }, create: { name: kw },
@@ -134,7 +225,7 @@ router.put ("/:questionid", isOwner, upload.single("image"), async(req, res) => 
         throw new NotFoundError ("Question Not Found!")
     }
 
-    const { question, answer, keywords } = QuestionInput.parse(req.body);
+    const { question, answer, keywords, difficulty } = QuestionInput.parse(req.body);
 
     if (!question || !answer) {
       throw new ValidationError ("Question and Answer are required!");}
@@ -144,7 +235,7 @@ router.put ("/:questionid", isOwner, upload.single("image"), async(req, res) => 
     const updatedQuestion = await prisma.question.update({
         where: { id: questionid },
         data: {
-        question, answer,imageUrl,
+        question, answer,imageUrl,difficulty,
         keywords: {
             set: [],
             connectOrCreate: keywordsArray.map((kw) => ({
@@ -174,6 +265,7 @@ router.delete ("/:questionid", isOwner ,async(req, res) => {
     res.status(201).json({ message: 'Successfully deleted' });
 });
 
+// for attempt
 router.post("/:questionid/attempt", async (req, res) => {
   const questionId = Number(req.params.questionid);
   const { answer } = req.body;
@@ -219,6 +311,7 @@ router.post("/:questionid/attempt", async (req, res) => {
   });
 });
 
+// to delete an attempt
 router.delete("/:questionid/attempt", async (req, res) => {
 
     const questionId = Number(req.params.questionid);
@@ -238,10 +331,7 @@ router.delete("/:questionid/attempt", async (req, res) => {
         questionId,
         attempted: false,
         attemptCount,
-
     });
-
-    
 });
 
 module.exports = router;
